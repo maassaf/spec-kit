@@ -92,6 +92,34 @@ class CommandRegistrar:
             except ImportError:
                 pass  # Circular import during module init; retry on next access
 
+    _SPECKIT_DOTTED_REF = re.compile(r"\bspeckit\.[A-Za-z0-9-_]+(?:\.[A-Za-z0-9-_]+)*\b")
+
+    @staticmethod
+    def _hyphenate_ref_match(match: "re.Match[str]") -> str:
+        """Hyphenate one dotted speckit reference, leaving ``.md`` file names alone.
+
+        Command names may themselves end in an ``md`` segment: extension
+        commands are ``speckit.<extension>.<command>`` and preset command names
+        may contain further dots, so ``/speckit.foo.md`` and
+        ``speckit.foo.bar.md`` can both be valid command references.  The
+        ``.md`` suffix and the segment count therefore cannot tell a file name
+        apart from a command.  A ``.md`` token is kept as a file name only when
+        it sits inside a path (``commands/speckit.git.commit.md``); a bare or
+        slash-prefixed token is treated as a command reference.
+        """
+        ref = match.group(0)
+        if ref.endswith(".md"):
+            start = match.start()
+            text = match.string
+            if (
+                start >= 2
+                and text[start - 1] in "/\\"
+                and not text[start - 2].isspace()
+                and text[start - 2] not in "`'\"("
+            ):
+                return ref
+        return ref.replace(".", "-")
+
     @staticmethod
     def _hyphenate_frontmatter_refs(val: Any) -> Any:
         """Recursively find any dotted references starting with speckit. and hyphenate them."""
@@ -103,20 +131,16 @@ class CommandRegistrar:
         elif isinstance(val, list):
             return [CommandRegistrar._hyphenate_frontmatter_refs(x) for x in val]
         elif isinstance(val, str):
-            return re.sub(
-                r"\bspeckit\.[A-Za-z0-9-_]+(?:\.[A-Za-z0-9-_]+)*\b",
-                lambda m: m.group(0).replace(".", "-"),
-                val,
+            return CommandRegistrar._SPECKIT_DOTTED_REF.sub(
+                CommandRegistrar._hyphenate_ref_match, val
             )
         return val
 
     @staticmethod
     def _hyphenate_body_refs(body: str) -> str:
         """Hyphenate dotted speckit references in command body text."""
-        return re.sub(
-            r"\bspeckit\.[A-Za-z0-9-_]+(?:\.[A-Za-z0-9-_]+)*\b",
-            lambda m: m.group(0).replace(".", "-"),
-            body,
+        return CommandRegistrar._SPECKIT_DOTTED_REF.sub(
+            CommandRegistrar._hyphenate_ref_match, body
         )
 
     @staticmethod
